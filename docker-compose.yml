@@ -25,6 +25,49 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: shipment
       RABBITMQ_DEFAULT_PASS: shipment
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: shipment-platform-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  prometheus:
+    profiles: ["observability", "full"]
+    image: prom/prometheus:v2.55.1
+    container_name: shipment-platform-prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    profiles: ["observability", "full"]
+    image: grafana/grafana:11.3.0
+    container_name: shipment-platform-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_DEFAULT_THEME: light
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - shipment_platform_grafana:/var/lib/grafana
+    depends_on:
+      - prometheus
 
   api:
     profiles: ["full"]
@@ -36,13 +79,21 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=shipment_platform;Username=shipment;Password=shipment
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: shipment
+      RabbitMq__Password: shipment
+      Redis__ConnectionString: redis:6379
+      Jwt__Key: ShipmentPlatform-Dev-Signing-Key-Change-Me-32+
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
-        condition: service_started
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   shipment_platform_pgdata:
+  shipment_platform_grafana:

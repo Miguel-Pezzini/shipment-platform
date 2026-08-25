@@ -1,18 +1,21 @@
 # shipment-platform
 
-API de transportadora em **.NET 10** com **Clean Architecture**.
+API de transportadora em **.NET 10** com **Clean Architecture**, mensageria transacional, cache e observabilidade.
 
 ## Arquitetura
 
 ```text
 src/
-  ShipmentPlatform.Api/             → HTTP (controllers)
+  ShipmentPlatform.Api/             → HTTP, JWT, OpenTelemetry/Prometheus
   ShipmentPlatform.Application/     → use cases, DTOs, validators, ports
   ShipmentPlatform.Domain/          → entidades e regras de negócio
-  ShipmentPlatform.Infrastructure/  → EF Core, Postgres, messaging
+  ShipmentPlatform.Infrastructure/  → EF Core, Postgres, MassTransit, Redis, JWT
 tests/
   ShipmentPlatform.UnitTests/
   ShipmentPlatform.IntegrationTests/
+observability/
+  prometheus/
+  grafana/
 ```
 
 Dependências apontam para dentro: Api → Application/Infrastructure → Domain.
@@ -25,23 +28,43 @@ Dependências apontam para dentro: Api → Application/Infrastructure → Domain
 
 Regras ficam na entidade (não no controller).
 
+## Stack
+
+| Área | Tecnologia |
+|------|------------|
+| API | ASP.NET Core + FluentValidation |
+| Auth | JWT Bearer (`POST /api/auth/login`) |
+| Persistência | EF Core + PostgreSQL + migrations |
+| Mensageria | MassTransit + RabbitMQ + **EF Outbox** |
+| Cache | Redis (`IDistributedCache`) |
+| Observabilidade | OpenTelemetry → Prometheus + Grafana |
+| Testes | xUnit, Moq, Testcontainers |
+| Infra | Docker Compose |
+
 ## Pré-requisitos
 
 - .NET 10 SDK
-- Docker (Postgres + RabbitMQ)
+- Docker
 
 ## Subir infraestrutura
 
 ```bash
-# Se a porta 5434 já estiver em uso por outro Postgres, pare o container antigo antes.
-docker compose up -d postgres rabbitmq
+docker compose up -d postgres rabbitmq redis
 ```
 
-- Postgres: `localhost:5434` (user/pass/db: `shipment` / `shipment` / `shipment_platform`)
-- RabbitMQ management: http://localhost:15672 (`shipment` / `shipment`)
+Opcional (métricas):
 
-Mensageria: a Application publica `ShipmentCreatedEvent` via `IEventPublisher`.  
-Hoje a implementação é `LoggingEventPublisher` (log). Trocar por RabbitMQ/MassTransit não exige mudar Domain/Application.
+```bash
+docker compose --profile observability up -d
+```
+
+| Serviço | URL / porta |
+|---------|-------------|
+| Postgres | `localhost:5434` (`shipment` / `shipment` / `shipment_platform`) |
+| RabbitMQ | http://localhost:15672 (`shipment` / `shipment`) |
+| Redis | `localhost:6380` |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 (`admin` / `admin`) |
 
 ## Rodar a API
 
@@ -49,17 +72,31 @@ Hoje a implementação é `LoggingEventPublisher` (log). Trocar por RabbitMQ/Mas
 dotnet run --project src/ShipmentPlatform.Api --launch-profile http
 ```
 
-Base URL: http://localhost:5208
+Base URL: http://localhost:5208  
+Métricas: http://localhost:5208/metrics
+
+### Autenticação
+
+```bash
+curl -s -X POST http://localhost:5208/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"Admin123!"}'
+```
+
+Use o `accessToken` no header `Authorization: Bearer ...`.
+
+Credenciais demo: `admin` / `Admin123!` (configuráveis em `appsettings.json`).
 
 ### Endpoints
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/api/shipments` | listar |
-| GET | `/api/shipments/{id}` | buscar por id |
-| GET | `/api/shipments/tracking/{code}` | buscar por tracking |
-| POST | `/api/shipments` | criar frete |
-| PATCH | `/api/shipments/{id}/status` | atualizar status |
+| Método | Rota | Auth | Descrição |
+|--------|------|------|-----------|
+| POST | `/api/auth/login` | público | obter JWT |
+| GET | `/api/shipments` | JWT | listar |
+| GET | `/api/shipments/{id}` | JWT | buscar por id |
+| GET | `/api/shipments/tracking/{code}` | público | tracking |
+| POST | `/api/shipments` | JWT | criar frete |
+| PATCH | `/api/shipments/{id}/status` | JWT | atualizar status |
 
 Exemplo de body (POST):
 
@@ -72,6 +109,12 @@ Exemplo de body (POST):
   "weightKg": 42.5
 }
 ```
+
+### Fluxo de eventos (Outbox)
+
+1. `CreateAsync` adiciona o frete e publica `ShipmentCreatedEvent` via MassTransit.
+2. O **EF Outbox** grava a mensagem na mesma transação do Postgres.
+3. O bus entrega no RabbitMQ; `ShipmentCreatedConsumer` consome e registra nos logs.
 
 ## Migrations
 
@@ -92,20 +135,13 @@ dotnet ef migrations add NomeDaMigration \
 dotnet test
 ```
 
-- **Unit**: regras de `Shipment` + `ShipmentService` (Moq)
-- **Integration**: API real + Postgres via **Testcontainers**
+- **Unit**: regras de `Shipment` + `ShipmentService` (Moq + cache em memória)
+- **Integration**: API real + Postgres (Testcontainers) + MassTransit in-memory + JWT
 
-## Docker full stack (opcional)
+## Docker full stack
 
 ```bash
 docker compose --profile full up --build
 ```
 
-API em http://localhost:8080
-
-## Próximos passos
-
-1. Publisher RabbitMQ real (MassTransit)
-2. Outbox pattern
-3. Serilog + correlation id
-4. Autenticação JWT
+API em http://localhost:8080 (Prometheus/Grafana sobem com o profile `full`).

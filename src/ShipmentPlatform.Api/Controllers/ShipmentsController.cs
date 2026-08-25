@@ -1,13 +1,15 @@
 using FluentValidation;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using ShipmentPlatform.Application.DTOs;
 using ShipmentPlatform.Application.Services;
 using ShipmentPlatform.Domain.Exceptions;
-using Microsoft.AspNetCore.Mvc;
 
 namespace ShipmentPlatform.Api.Controllers;
 
 [ApiController]
 [Route("api/shipments")]
+[Authorize]
 public class ShipmentsController(IShipmentService shipmentService) : ControllerBase
 {
     [HttpGet]
@@ -24,6 +26,7 @@ public class ShipmentsController(IShipmentService shipmentService) : ControllerB
         return shipment is null ? NotFound() : Ok(shipment);
     }
 
+    [AllowAnonymous]
     [HttpGet("tracking/{trackingCode}")]
     public async Task<ActionResult<ShipmentResponse>> GetByTrackingCode(
         string trackingCode,
