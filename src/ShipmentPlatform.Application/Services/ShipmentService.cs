@@ -43,7 +43,7 @@ public class ShipmentService(
 
         await repository.AddAsync(shipment, cancellationToken);
 
-        // Publish before SaveChanges so MassTransit EF Outbox shares the same transaction.
+        // Enqueue in outbox before SaveChanges so both share the same transaction.
         await eventPublisher.PublishAsync(
             new ShipmentCreatedEvent(
                 shipment.Id,

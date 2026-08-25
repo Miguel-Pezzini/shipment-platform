@@ -28,7 +28,8 @@ public static class DependencyInjection
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
 
         services.AddScoped<IShipmentRepository, ShipmentRepository>();
-        services.AddScoped<IEventPublisher, MassTransitEventPublisher>();
+        services.AddScoped<IEventPublisher, OutboxEventPublisher>();
+        services.AddHostedService<OutboxProcessorService>();
         services.AddSingleton<IJwtTokenService, JwtTokenService>();
 
         AddCache(services, configuration);
@@ -69,13 +70,6 @@ public static class DependencyInjection
         services.AddMassTransit(x =>
         {
             x.AddConsumer<ShipmentCreatedConsumer>();
-
-            x.AddEntityFrameworkOutbox<AppDbContext>(o =>
-            {
-                o.QueryDelay = TimeSpan.FromSeconds(1);
-                o.UsePostgres();
-                o.UseBusOutbox();
-            });
 
             if (useInMemory)
             {
