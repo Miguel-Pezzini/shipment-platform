@@ -1,6 +1,6 @@
 # shipment-platform
 
-API de transportadora em **.NET 10** com **Clean Architecture**, pensada como demo para vaga pleno backend.
+API de transportadora em **.NET 10** com **Clean Architecture**.
 
 ## Arquitetura
 
@@ -103,7 +103,7 @@ docker compose --profile full up --build
 
 API em http://localhost:8080
 
-## Próximos passos (roadmap da demo)
+## Próximos passos
 
 1. Publisher RabbitMQ real (MassTransit)
 2. Outbox pattern
