@@ -1,0 +1,30 @@
+@host = http://localhost:5208
+
+### Listar fretes
+GET {{host}}/api/shipments
+
+### Criar frete
+POST {{host}}/api/shipments
+Content-Type: application/json
+
+{
+  "senderName": "Indústria Alfa",
+  "recipientName": "Loja Beta",
+  "originCity": "Curitiba",
+  "destinationCity": "Florianópolis",
+  "weightKg": 42.5
+}
+
+### Buscar por id (troque o guid)
+GET {{host}}/api/shipments/00000000-0000-0000-0000-000000000000
+
+### Buscar por tracking
+GET {{host}}/api/shipments/tracking/SP250825123456
+
+### Atualizar status
+PATCH {{host}}/api/shipments/00000000-0000-0000-0000-000000000000/status
+Content-Type: application/json
+
+{
+  "status": "PickedUp"
+}

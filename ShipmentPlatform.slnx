@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ShipmentPlatform.Api/ShipmentPlatform.Api.csproj" />
+    <Project Path="src/ShipmentPlatform.Application/ShipmentPlatform.Application.csproj" />
+    <Project Path="src/ShipmentPlatform.Domain/ShipmentPlatform.Domain.csproj" />
+    <Project Path="src/ShipmentPlatform.Infrastructure/ShipmentPlatform.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ShipmentPlatform.IntegrationTests/ShipmentPlatform.IntegrationTests.csproj" />
+    <Project Path="tests/ShipmentPlatform.UnitTests/ShipmentPlatform.UnitTests.csproj" />
+  </Folder>
+</Solution>
