@@ -49,6 +49,7 @@ public sealed class OutboxProcessorService(
         foreach (var entry in pending)
         {
             var eventType = Type.GetType(entry.EventType);
+            logger.LogInformation("Processing outbox event {EventType}", eventType);
             if (eventType is null)
             {
                 logger.LogError("Unknown outbox event type: {EventType}", entry.EventType);
