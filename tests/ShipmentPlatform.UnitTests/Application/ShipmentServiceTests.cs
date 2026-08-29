@@ -1,7 +1,4 @@
 using FluentAssertions;
-using Microsoft.Extensions.Caching.Distributed;
-using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Options;
 using Moq;
 using ShipmentPlatform.Application.Abstractions;
 using ShipmentPlatform.Application.DTOs;
@@ -10,6 +7,7 @@ using ShipmentPlatform.Application.Services;
 using ShipmentPlatform.Application.Validators;
 using ShipmentPlatform.Domain.Entities;
 using ShipmentPlatform.Domain.Exceptions;
+using ShipmentPlatform.UnitTests.Fakes;
 
 namespace ShipmentPlatform.UnitTests.Application;
 
@@ -17,8 +15,7 @@ public class ShipmentServiceTests
 {
     private readonly Mock<IShipmentRepository> _repository = new();
     private readonly Mock<IEventPublisher> _publisher = new();
-    private readonly IDistributedCache _cache =
-        new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
+    private readonly ICache _cache = new InMemoryCache();
     private readonly ShipmentService _sut;
 
     public ShipmentServiceTests()

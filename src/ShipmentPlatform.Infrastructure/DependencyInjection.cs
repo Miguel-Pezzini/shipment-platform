@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using ShipmentPlatform.Application.Abstractions;
 using ShipmentPlatform.Infrastructure.Auth;
+using ShipmentPlatform.Infrastructure.Caching;
 using ShipmentPlatform.Infrastructure.Messaging;
 using ShipmentPlatform.Infrastructure.Options;
 using ShipmentPlatform.Infrastructure.Persistence;
@@ -23,6 +24,7 @@ public static class DependencyInjection
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
         services.Configure<RabbitMqOptions>(configuration.GetSection(RabbitMqOptions.SectionName));
+        services.Configure<CacheOptions>(configuration.GetSection(CacheOptions.SectionName));
 
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
@@ -41,24 +43,21 @@ public static class DependencyInjection
 
     private static void AddCache(IServiceCollection services, IConfiguration configuration)
     {
-        if (configuration.GetValue("Redis:UseInMemory", false))
+        if (configuration.GetValue("Redis:UseInMemory", false)
+            || string.IsNullOrWhiteSpace(configuration["Redis:ConnectionString"]))
         {
             services.AddDistributedMemoryCache();
-            return;
+        }
+        else
+        {
+            services.AddStackExchangeRedisCache(options =>
+            {
+                options.Configuration = configuration["Redis:ConnectionString"];
+                options.InstanceName = "shipment-platform:";
+            });
         }
 
-        var redisConnection = configuration["Redis:ConnectionString"];
-        if (string.IsNullOrWhiteSpace(redisConnection))
-        {
-            services.AddDistributedMemoryCache();
-            return;
-        }
-
-        services.AddStackExchangeRedisCache(options =>
-        {
-            options.Configuration = redisConnection;
-            options.InstanceName = "shipment-platform:";
-        });
+        services.AddSingleton<ICache, JsonDistributedCache>();
     }
 
     private static void AddMessaging(IServiceCollection services, IConfiguration configuration)

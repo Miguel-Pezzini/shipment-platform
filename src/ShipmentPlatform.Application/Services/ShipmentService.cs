@@ -1,6 +1,4 @@
-using System.Text.Json;
 using FluentValidation;
-using Microsoft.Extensions.Caching.Distributed;
 using ShipmentPlatform.Application.Abstractions;
 using ShipmentPlatform.Application.Caching;
 using ShipmentPlatform.Application.DTOs;
@@ -16,18 +14,8 @@ public class ShipmentService(
     IShipmentRepository shipmentRepository,
     IEventPublisher eventPublisher,
     IValidator<CreateShipmentRequest> createShipmentValidator,
-    IDistributedCache distributedCache) : IShipmentService
+    ICache cache) : IShipmentService
 {
-    private static readonly JsonSerializerOptions CacheSerializerOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
-
-    private static readonly DistributedCacheEntryOptions CacheExpiration = new()
-    {
-        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
-    };
-
     public async Task<ShipmentResponse> CreateAsync(
         CreateShipmentRequest request,
         CancellationToken cancellationToken = default)
@@ -42,7 +30,7 @@ public class ShipmentService(
             request.WeightKg);
 
         await shipmentRepository.AddAsync(shipment, cancellationToken);
-        
+
         await PublishShipmentCreatedAsync(shipment, cancellationToken);
 
         await shipmentRepository.SaveChangesAsync(cancellationToken);
@@ -87,7 +75,7 @@ public class ShipmentService(
         await PublishStatusChangedAsync(shipment, previousStatus, cancellationToken);
         await shipmentRepository.SaveChangesAsync(cancellationToken);
 
-        return await MapToResponseAndCacheAsync(shipment, cancellationToken);
+        return await InvalidateAndCacheAsync(shipment, cancellationToken);
     }
 
     private async Task<ShipmentResponse?> GetFromCacheOrDatabaseAsync(
@@ -95,7 +83,7 @@ public class ShipmentService(
         Func<CancellationToken, Task<Shipment?>> loadFromDatabase,
         CancellationToken cancellationToken)
     {
-        var cachedShipment = await TryGetCachedShipmentAsync(cacheKey, cancellationToken);
+        var cachedShipment = await cache.GetAsync<ShipmentResponse>(cacheKey, cancellationToken);
         if (cachedShipment is not null)
             return cachedShipment;
 
@@ -113,6 +101,24 @@ public class ShipmentService(
         var response = shipment.ToResponse();
         await CacheShipmentAsync(response, cancellationToken);
         return response;
+    }
+
+    private async Task<ShipmentResponse> InvalidateAndCacheAsync(
+        Shipment shipment,
+        CancellationToken cancellationToken)
+    {
+        var response = shipment.ToResponse();
+        await cache.RemoveAsync(ShipmentCacheKeys.For(response.Id, response.TrackingCode), cancellationToken);
+        await CacheShipmentAsync(response, cancellationToken);
+        return response;
+    }
+
+    private async Task CacheShipmentAsync(ShipmentResponse response, CancellationToken cancellationToken)
+    {
+        foreach (var cacheKey in ShipmentCacheKeys.For(response.Id, response.TrackingCode))
+        {
+            await cache.SetAsync(cacheKey, response, cancellationToken: cancellationToken);
+        }
     }
 
     private static ShipmentStatus ParseRequestedStatus(string status)
@@ -166,32 +172,4 @@ public class ShipmentService(
                 shipment.Status.ToString(),
                 DateTime.UtcNow),
             cancellationToken);
-
-    private async Task<ShipmentResponse?> TryGetCachedShipmentAsync(
-        string cacheKey,
-        CancellationToken cancellationToken)
-    {
-        var cachedPayload = await distributedCache.GetAsync(cacheKey, cancellationToken);
-        if (cachedPayload is null || cachedPayload.Length == 0)
-            return null;
-
-        return JsonSerializer.Deserialize<ShipmentResponse>(cachedPayload, CacheSerializerOptions);
-    }
-
-    private async Task CacheShipmentAsync(ShipmentResponse response, CancellationToken cancellationToken)
-    {
-        var serializedShipment = JsonSerializer.SerializeToUtf8Bytes(response, CacheSerializerOptions);
-
-        await distributedCache.SetAsync(
-            ShipmentCacheKeys.ById(response.Id),
-            serializedShipment,
-            CacheExpiration,
-            cancellationToken);
-
-        await distributedCache.SetAsync(
-            ShipmentCacheKeys.ByTracking(response.TrackingCode),
-            serializedShipment,
-            CacheExpiration,
-            cancellationToken);
-    }
 }
