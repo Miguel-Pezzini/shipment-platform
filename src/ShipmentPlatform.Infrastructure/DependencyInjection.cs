@@ -70,6 +70,7 @@ public static class DependencyInjection
         services.AddMassTransit(x =>
         {
             x.AddConsumer<ShipmentCreatedConsumer>();
+            x.AddConsumer<ShipmentStatusChangedConsumer>();
 
             if (useInMemory)
             {

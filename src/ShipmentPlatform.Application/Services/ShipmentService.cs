@@ -13,17 +13,17 @@ using ShipmentPlatform.Domain.Exceptions;
 namespace ShipmentPlatform.Application.Services;
 
 public class ShipmentService(
-    IShipmentRepository repository,
+    IShipmentRepository shipmentRepository,
     IEventPublisher eventPublisher,
-    IValidator<CreateShipmentRequest> validator,
-    IDistributedCache cache) : IShipmentService
+    IValidator<CreateShipmentRequest> createShipmentValidator,
+    IDistributedCache distributedCache) : IShipmentService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions CacheSerializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    private static readonly DistributedCacheEntryOptions CacheOptions = new()
+    private static readonly DistributedCacheEntryOptions CacheExpiration = new()
     {
         AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
     };
@@ -32,7 +32,7 @@ public class ShipmentService(
         CreateShipmentRequest request,
         CancellationToken cancellationToken = default)
     {
-        await validator.ValidateAndThrowAsync(request, cancellationToken);
+        await createShipmentValidator.ValidateAndThrowAsync(request, cancellationToken);
 
         var shipment = Shipment.Create(
             request.SenderName,
@@ -41,61 +41,33 @@ public class ShipmentService(
             request.DestinationCity,
             request.WeightKg);
 
-        await repository.AddAsync(shipment, cancellationToken);
+        await shipmentRepository.AddAsync(shipment, cancellationToken);
+        
+        await PublishShipmentCreatedAsync(shipment, cancellationToken);
 
-        // Enqueue in outbox before SaveChanges so both share the same transaction.
-        await eventPublisher.PublishAsync(
-            new ShipmentCreatedEvent(
-                shipment.Id,
-                shipment.TrackingCode,
-                shipment.OriginCity,
-                shipment.DestinationCity,
-                DateTime.UtcNow),
+        await shipmentRepository.SaveChangesAsync(cancellationToken);
+
+        return await MapToResponseAndCacheAsync(shipment, cancellationToken);
+    }
+
+    public Task<ShipmentResponse?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        GetFromCacheOrDatabaseAsync(
+            ShipmentCacheKeys.ById(id),
+            ct => shipmentRepository.GetByIdAsync(id, ct),
             cancellationToken);
 
-        await repository.SaveChangesAsync(cancellationToken);
-
-        var response = shipment.ToResponse();
-        await SetCacheAsync(response, cancellationToken);
-        return response;
-    }
-
-    public async Task<ShipmentResponse?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
-    {
-        var cached = await GetFromCacheAsync(ShipmentCacheKeys.ById(id), cancellationToken);
-        if (cached is not null)
-            return cached;
-
-        var shipment = await repository.GetByIdAsync(id, cancellationToken);
-        if (shipment is null)
-            return null;
-
-        var response = shipment.ToResponse();
-        await SetCacheAsync(response, cancellationToken);
-        return response;
-    }
-
-    public async Task<ShipmentResponse?> GetByTrackingCodeAsync(
+    public Task<ShipmentResponse?> GetByTrackingCodeAsync(
         string trackingCode,
-        CancellationToken cancellationToken = default)
-    {
-        var cached = await GetFromCacheAsync(ShipmentCacheKeys.ByTracking(trackingCode), cancellationToken);
-        if (cached is not null)
-            return cached;
-
-        var shipment = await repository.GetByTrackingCodeAsync(trackingCode, cancellationToken);
-        if (shipment is null)
-            return null;
-
-        var response = shipment.ToResponse();
-        await SetCacheAsync(response, cancellationToken);
-        return response;
-    }
+        CancellationToken cancellationToken = default) =>
+        GetFromCacheOrDatabaseAsync(
+            ShipmentCacheKeys.ByTracking(trackingCode),
+            ct => shipmentRepository.GetByTrackingCodeAsync(trackingCode, ct),
+            cancellationToken);
 
     public async Task<IReadOnlyList<ShipmentResponse>> GetAllAsync(CancellationToken cancellationToken = default)
     {
-        var shipments = await repository.GetAllAsync(cancellationToken);
-        return shipments.Select(s => s.ToResponse()).ToList();
+        var shipments = await shipmentRepository.GetAllAsync(cancellationToken);
+        return shipments.Select(shipment => shipment.ToResponse()).ToList();
     }
 
     public async Task<ShipmentResponse?> UpdateStatusAsync(
@@ -103,14 +75,57 @@ public class ShipmentService(
         string status,
         CancellationToken cancellationToken = default)
     {
-        var shipment = await repository.GetByIdAsync(id, cancellationToken);
+        var shipment = await shipmentRepository.GetByIdAsync(id, cancellationToken);
         if (shipment is null)
             return null;
 
-        if (!Enum.TryParse<ShipmentStatus>(status, ignoreCase: true, out var parsed))
+        var requestedStatus = ParseRequestedStatus(status);
+        var previousStatus = shipment.Status;
+
+        ApplyStatusTransition(shipment, requestedStatus);
+
+        await PublishStatusChangedAsync(shipment, previousStatus, cancellationToken);
+        await shipmentRepository.SaveChangesAsync(cancellationToken);
+
+        return await MapToResponseAndCacheAsync(shipment, cancellationToken);
+    }
+
+    private async Task<ShipmentResponse?> GetFromCacheOrDatabaseAsync(
+        string cacheKey,
+        Func<CancellationToken, Task<Shipment?>> loadFromDatabase,
+        CancellationToken cancellationToken)
+    {
+        var cachedShipment = await TryGetCachedShipmentAsync(cacheKey, cancellationToken);
+        if (cachedShipment is not null)
+            return cachedShipment;
+
+        var shipment = await loadFromDatabase(cancellationToken);
+        if (shipment is null)
+            return null;
+
+        return await MapToResponseAndCacheAsync(shipment, cancellationToken);
+    }
+
+    private async Task<ShipmentResponse> MapToResponseAndCacheAsync(
+        Shipment shipment,
+        CancellationToken cancellationToken)
+    {
+        var response = shipment.ToResponse();
+        await CacheShipmentAsync(response, cancellationToken);
+        return response;
+    }
+
+    private static ShipmentStatus ParseRequestedStatus(string status)
+    {
+        if (!Enum.TryParse<ShipmentStatus>(status, ignoreCase: true, out var requestedStatus))
             throw new DomainException($"Invalid status '{status}'.");
 
-        switch (parsed)
+        return requestedStatus;
+    }
+
+    private static void ApplyStatusTransition(Shipment shipment, ShipmentStatus requestedStatus)
+    {
+        switch (requestedStatus)
         {
             case ShipmentStatus.PickedUp:
                 shipment.MarkPickedUp();
@@ -125,33 +140,58 @@ public class ShipmentService(
                 shipment.Cancel();
                 break;
             default:
-                throw new DomainException($"Status '{parsed}' cannot be set directly.");
+                throw new DomainException($"Status '{requestedStatus}' cannot be set directly.");
         }
-
-        await repository.SaveChangesAsync(cancellationToken);
-
-        var response = shipment.ToResponse();
-        await SetCacheAsync(response, cancellationToken);
-        return response;
     }
 
-    private async Task<ShipmentResponse?> GetFromCacheAsync(string key, CancellationToken cancellationToken)
+    private Task PublishShipmentCreatedAsync(Shipment shipment, CancellationToken cancellationToken) =>
+        eventPublisher.PublishAsync(
+            new ShipmentCreatedEvent(
+                shipment.Id,
+                shipment.TrackingCode,
+                shipment.OriginCity,
+                shipment.DestinationCity,
+                DateTime.UtcNow),
+            cancellationToken);
+
+    private Task PublishStatusChangedAsync(
+        Shipment shipment,
+        ShipmentStatus previousStatus,
+        CancellationToken cancellationToken) =>
+        eventPublisher.PublishAsync(
+            new ShipmentStatusChangedEvent(
+                shipment.Id,
+                shipment.TrackingCode,
+                previousStatus.ToString(),
+                shipment.Status.ToString(),
+                DateTime.UtcNow),
+            cancellationToken);
+
+    private async Task<ShipmentResponse?> TryGetCachedShipmentAsync(
+        string cacheKey,
+        CancellationToken cancellationToken)
     {
-        var bytes = await cache.GetAsync(key, cancellationToken);
-        if (bytes is null || bytes.Length == 0)
+        var cachedPayload = await distributedCache.GetAsync(cacheKey, cancellationToken);
+        if (cachedPayload is null || cachedPayload.Length == 0)
             return null;
 
-        return JsonSerializer.Deserialize<ShipmentResponse>(bytes, JsonOptions);
+        return JsonSerializer.Deserialize<ShipmentResponse>(cachedPayload, CacheSerializerOptions);
     }
 
-    private async Task SetCacheAsync(ShipmentResponse response, CancellationToken cancellationToken)
+    private async Task CacheShipmentAsync(ShipmentResponse response, CancellationToken cancellationToken)
     {
-        var payload = JsonSerializer.SerializeToUtf8Bytes(response, JsonOptions);
-        await cache.SetAsync(ShipmentCacheKeys.ById(response.Id), payload, CacheOptions, cancellationToken);
-        await cache.SetAsync(
+        var serializedShipment = JsonSerializer.SerializeToUtf8Bytes(response, CacheSerializerOptions);
+
+        await distributedCache.SetAsync(
+            ShipmentCacheKeys.ById(response.Id),
+            serializedShipment,
+            CacheExpiration,
+            cancellationToken);
+
+        await distributedCache.SetAsync(
             ShipmentCacheKeys.ByTracking(response.TrackingCode),
-            payload,
-            CacheOptions,
+            serializedShipment,
+            CacheExpiration,
             cancellationToken);
     }
 }

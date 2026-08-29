@@ -63,11 +63,41 @@ public class ShipmentsApiTests
     }
 
     [Fact]
+    public async Task UpdateStatus_ShouldReturnPickedUp()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+        var created = await CreateShipmentAsync(client);
+
+        var patch = await client.PatchAsJsonAsync(
+            $"/api/shipments/{created.Id}/status",
+            new UpdateShipmentStatusRequest("PickedUp"));
+
+        patch.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updated = await patch.Content.ReadFromJsonAsync<ShipmentResponse>(JsonOptions);
+        updated!.Status.Should().Be("PickedUp");
+
+        var fetched = await client.GetFromJsonAsync<ShipmentResponse>(
+            $"/api/shipments/{created.Id}",
+            JsonOptions);
+        fetched!.Status.Should().Be("PickedUp");
+    }
+
+    [Fact]
     public async Task GetById_WhenMissing_ShouldReturnNotFound()
     {
         var client = await CreateAuthenticatedClientAsync();
         var response = await client.GetAsync($"/api/shipments/{Guid.NewGuid()}");
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    private async Task<ShipmentResponse> CreateShipmentAsync(HttpClient client)
+    {
+        var request = new CreateShipmentRequest("Transportadora X", "Cliente Y", "Joinville", "Blumenau", 10);
+        var response = await client.PostAsJsonAsync("/api/shipments", request);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await response.Content.ReadFromJsonAsync<ShipmentResponse>(JsonOptions);
+        created.Should().NotBeNull();
+        return created!;
     }
 
     private async Task<HttpClient> CreateAuthenticatedClientAsync()
