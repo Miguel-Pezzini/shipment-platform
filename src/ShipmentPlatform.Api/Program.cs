@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using ShipmentPlatform.Api.ExceptionHandling;
 using ShipmentPlatform.Application;
 using ShipmentPlatform.Infrastructure;
 using ShipmentPlatform.Infrastructure.Persistence;
@@ -10,6 +11,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
 builder.Services.AddApplication();
 builder.Services.AddApiInfrastructure(builder.Configuration);
 
@@ -40,6 +43,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseExceptionHandler();
 app.UseAuthentication();
 app.UseAuthorization();
 

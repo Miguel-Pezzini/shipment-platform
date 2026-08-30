@@ -1,9 +1,7 @@
-using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShipmentPlatform.Application.DTOs;
 using ShipmentPlatform.Application.Services;
-using ShipmentPlatform.Domain.Exceptions;
 
 namespace ShipmentPlatform.Api.Controllers;
 
@@ -41,19 +39,8 @@ public class ShipmentsController(IShipmentService shipmentService) : ControllerB
         [FromBody] CreateShipmentRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var shipment = await shipmentService.CreateAsync(request, cancellationToken);
-            return StatusCode(StatusCodes.Status201Created, shipment);
-        }
-        catch (ValidationException ex)
-        {
-            return BadRequest(new { error = "Validation failed", details = ex.Errors.Select(e => e.ErrorMessage) });
-        }
-        catch (DomainException ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
+        var shipment = await shipmentService.CreateAsync(request, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, shipment);
     }
 
     [HttpPatch("{id:guid}/status")]
@@ -62,14 +49,7 @@ public class ShipmentsController(IShipmentService shipmentService) : ControllerB
         [FromBody] UpdateShipmentStatusRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var shipment = await shipmentService.UpdateStatusAsync(id, request.Status, cancellationToken);
-            return shipment is null ? NotFound() : Ok(shipment);
-        }
-        catch (DomainException ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
+        var shipment = await shipmentService.UpdateStatusAsync(id, request.Status, cancellationToken);
+        return shipment is null ? NotFound() : Ok(shipment);
     }
 }

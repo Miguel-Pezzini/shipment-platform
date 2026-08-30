@@ -90,6 +90,35 @@ public class ShipmentsApiTests
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task Create_WhenInvalid_ShouldReturnBadRequest()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+        var request = new CreateShipmentRequest("", "Cliente Y", "Joinville", "Blumenau", 10);
+
+        var response = await client.PostAsJsonAsync("/api/shipments", request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        payload.GetProperty("error").GetString().Should().Be("Validation failed");
+        payload.GetProperty("details").GetArrayLength().Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_WhenTransitionIsInvalid_ShouldReturnBadRequest()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+        var created = await CreateShipmentAsync(client);
+
+        var response = await client.PatchAsJsonAsync(
+            $"/api/shipments/{created.Id}/status",
+            new UpdateShipmentStatusRequest("Delivered"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        payload.GetProperty("error").GetString().Should().Contain("Cannot move from");
+    }
+
     private async Task<ShipmentResponse> CreateShipmentAsync(HttpClient client)
     {
         var request = new CreateShipmentRequest("Transportadora X", "Cliente Y", "Joinville", "Blumenau", 10);
