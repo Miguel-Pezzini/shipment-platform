@@ -9,6 +9,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Shipment> Shipments => Set<Shipment>();
     public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
     public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
+    public DbSet<ShipmentTimelineEntry> ShipmentTimeline => Set<ShipmentTimelineEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

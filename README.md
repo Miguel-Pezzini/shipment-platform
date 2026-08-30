@@ -10,7 +10,7 @@ HTTP, poll da outbox e consumers rodam em **processos separados** (mesmo Postgre
 src/
   ShipmentPlatform.Api/             → HTTP, JWT, Redis, migrate, OpenTelemetry/Prometheus
   ShipmentPlatform.OutboxWorker/    → poll da outbox (SKIP LOCKED) + publish MassTransit
-  ShipmentPlatform.ConsumerWorker/  → consumers RabbitMQ + inbox
+  ShipmentPlatform.ConsumerWorker/  → consumers RabbitMQ + inbox + timeline
   ShipmentPlatform.Application/     → use cases, DTOs, validators, ports
   ShipmentPlatform.Domain/          → entidades e regras de negócio
   ShipmentPlatform.Infrastructure/  → EF Core, Postgres, MassTransit, Redis, JWT
@@ -38,8 +38,8 @@ Cliente HTTP
     │
     │  RabbitMQ
     ▼
-┌──────────────────┐  competing consumers + InboxGuard
-│ Consumer worker  │  efeito do evento (hoje: log)
+┌──────────────────┐
+│ Consumer worker  │  competing consumers + InboxGuard + timeline
 └──────────────────┘
 ```
 
@@ -127,6 +127,8 @@ Credenciais demo: `admin` / `Admin123!` (configuráveis em `appsettings.json`).
 | GET | `/api/shipments` | JWT | listar |
 | GET | `/api/shipments/{id}` | JWT | buscar por id |
 | GET | `/api/shipments/tracking/{code}` | público | tracking |
+| GET | `/api/shipments/{id}/timeline` | JWT | histórico projetado pelos consumers |
+| GET | `/api/shipments/tracking/{code}/timeline` | público | mesmo histórico, via tracking |
 | POST | `/api/shipments` | JWT | criar frete |
 | PATCH | `/api/shipments/{id}/status` | JWT | atualizar status |
 
@@ -147,7 +149,7 @@ Exemplo de body (POST):
 1. `CreateAsync` adiciona o frete e grava `ShipmentCreatedEvent` na tabela `outbox_events` **na mesma transação** do Postgres.
 2. O **Outbox worker** reclama um lote com `FOR UPDATE SKIP LOCKED`, publica no bus (MassTransit) com `MessageId` = id da outbox e só então marca `ProcessedAtUtc`. Várias réplicas do worker competem sem duplicar linha.
 3. Falha transiente incrementa `AttemptCount` e agenda `NextAttemptAtUtc` (backoff exponencial). Depois de 5 tentativas — ou tipo/JSON inválido — o evento fica com `PoisonedAtUtc` para inspeção e **não** é marcado como processado.
-4. O **Consumer worker** grava `(MessageId, ConsumerName)` em `inbox_messages` antes do efeito (hoje: log), para um replay at-least-once não duplicar trabalho.
+4. O **Consumer worker** grava `(MessageId, ConsumerName)` em `inbox_messages` **na mesma transação** em que projeta a linha em `shipment_timeline`. Replay at-least-once não duplica o histórico. Consulte `GET /api/shipments/{id}/timeline` (eventual consistency: a API responde 201 antes do consumer rodar).
 
 ## Migrations
 
@@ -169,7 +171,7 @@ dotnet test
 ```
 
 - **Unit**: regras de `Shipment` + `ShipmentService` (Moq + cache em memória) + retry/tipo da outbox
-- **Integration**: API real + Postgres (Testcontainers) + MassTransit in-memory + JWT + processor da outbox (processed vs poison) no mesmo processo de teste
+- **Integration**: API real + Postgres (Testcontainers) + MassTransit in-memory + JWT + processor da outbox (processed vs poison) + timeline projetada pelos consumers no mesmo processo de teste
 
 ## Docker full stack
 

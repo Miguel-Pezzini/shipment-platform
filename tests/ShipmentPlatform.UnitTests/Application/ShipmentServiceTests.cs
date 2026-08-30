@@ -14,6 +14,7 @@ namespace ShipmentPlatform.UnitTests.Application;
 public class ShipmentServiceTests
 {
     private readonly Mock<IShipmentRepository> _repository = new();
+    private readonly Mock<IShipmentTimelineRepository> _timeline = new();
     private readonly Mock<IEventPublisher> _publisher = new();
     private readonly ICache _cache = new InMemoryCache();
     private readonly ShipmentService _sut;
@@ -22,6 +23,7 @@ public class ShipmentServiceTests
     {
         _sut = new ShipmentService(
             _repository.Object,
+            _timeline.Object,
             _publisher.Object,
             new CreateShipmentRequestValidator(),
             _cache);
@@ -106,5 +108,50 @@ public class ShipmentServiceTests
             p => p.PublishAsync(It.IsAny<ShipmentStatusChangedEvent>(), It.IsAny<CancellationToken>()),
             Times.Never);
         _repository.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetTimelineByIdAsync_WhenMissing_ShouldReturnNull()
+    {
+        _repository
+            .Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Shipment?)null);
+
+        var result = await _sut.GetTimelineByIdAsync(Guid.NewGuid());
+
+        result.Should().BeNull();
+        _timeline.Verify(
+            t => t.ListByShipmentIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetTimelineByIdAsync_WhenExists_ShouldReturnEntries()
+    {
+        var shipment = Shipment.Create("ACME", "Cliente", "Curitiba", "São Paulo", 8);
+        var entries = new List<ShipmentTimelineEntryResponse>
+        {
+            new(
+                Guid.NewGuid(),
+                shipment.Id,
+                shipment.TrackingCode,
+                "Created",
+                "Shipment created: Curitiba → São Paulo",
+                null,
+                null,
+                DateTime.UtcNow)
+        };
+
+        _repository
+            .Setup(r => r.GetByIdAsync(shipment.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(shipment);
+
+        _timeline
+            .Setup(t => t.ListByShipmentIdAsync(shipment.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(entries);
+
+        var result = await _sut.GetTimelineByIdAsync(shipment.Id);
+
+        result.Should().BeEquivalentTo(entries);
     }
 }

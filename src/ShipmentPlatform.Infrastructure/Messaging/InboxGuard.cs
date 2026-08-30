@@ -10,6 +10,7 @@ public sealed class InboxGuard(AppDbContext db)
     public async Task<bool> TryClaimAsync(
         Guid messageId,
         string consumerName,
+        Func<CancellationToken, Task> stageSideEffect,
         CancellationToken cancellationToken = default)
     {
         var alreadyProcessed = await db.InboxMessages.AnyAsync(
@@ -19,14 +20,14 @@ public sealed class InboxGuard(AppDbContext db)
         if (alreadyProcessed)
             return false;
 
-        var inboxMessage = new InboxMessage
+        db.InboxMessages.Add(new InboxMessage
         {
             MessageId = messageId,
             ConsumerName = consumerName,
             ProcessedAtUtc = DateTime.UtcNow
-        };
+        });
 
-        db.InboxMessages.Add(inboxMessage);
+        await stageSideEffect(cancellationToken);
 
         try
         {
@@ -35,7 +36,9 @@ public sealed class InboxGuard(AppDbContext db)
         }
         catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
-            db.Entry(inboxMessage).State = EntityState.Detached;
+            foreach (var entry in db.ChangeTracker.Entries().Where(e => e.State == EntityState.Added))
+                entry.State = EntityState.Detached;
+
             return false;
         }
     }

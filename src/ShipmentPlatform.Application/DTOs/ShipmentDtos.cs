@@ -20,3 +20,13 @@ public record ShipmentResponse(
     DateTime? UpdatedAtUtc);
 
 public record UpdateShipmentStatusRequest(string Status);
+
+public record ShipmentTimelineEntryResponse(
+    Guid Id,
+    Guid ShipmentId,
+    string TrackingCode,
+    string EventType,
+    string Description,
+    string? PreviousStatus,
+    string? NewStatus,
+    DateTime OccurredAtUtc);

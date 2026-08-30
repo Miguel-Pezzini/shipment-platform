@@ -56,6 +56,7 @@ public static class DependencyInjection
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
 
         services.AddScoped<IShipmentRepository, ShipmentRepository>();
+        services.AddScoped<IShipmentTimelineRepository, ShipmentTimelineRepository>();
         return services;
     }
 

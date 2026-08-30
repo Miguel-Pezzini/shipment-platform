@@ -34,6 +34,25 @@ public class ShipmentsController(IShipmentService shipmentService) : ControllerB
         return shipment is null ? NotFound() : Ok(shipment);
     }
 
+    [HttpGet("{id:guid}/timeline")]
+    public async Task<ActionResult<IReadOnlyList<ShipmentTimelineEntryResponse>>> GetTimeline(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var timeline = await shipmentService.GetTimelineByIdAsync(id, cancellationToken);
+        return timeline is null ? NotFound() : Ok(timeline);
+    }
+
+    [AllowAnonymous]
+    [HttpGet("tracking/{trackingCode}/timeline")]
+    public async Task<ActionResult<IReadOnlyList<ShipmentTimelineEntryResponse>>> GetTimelineByTrackingCode(
+        string trackingCode,
+        CancellationToken cancellationToken)
+    {
+        var timeline = await shipmentService.GetTimelineByTrackingCodeAsync(trackingCode, cancellationToken);
+        return timeline is null ? NotFound() : Ok(timeline);
+    }
+
     [HttpPost]
     public async Task<ActionResult<ShipmentResponse>> Create(
         [FromBody] CreateShipmentRequest request,

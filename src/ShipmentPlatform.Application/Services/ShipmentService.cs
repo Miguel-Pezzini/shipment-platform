@@ -12,6 +12,7 @@ namespace ShipmentPlatform.Application.Services;
 
 public class ShipmentService(
     IShipmentRepository shipmentRepository,
+    IShipmentTimelineRepository timelineRepository,
     IEventPublisher eventPublisher,
     IValidator<CreateShipmentRequest> createShipmentValidator,
     ICache cache) : IShipmentService
@@ -56,6 +57,28 @@ public class ShipmentService(
     {
         var shipments = await shipmentRepository.GetAllAsync(cancellationToken);
         return shipments.Select(shipment => shipment.ToResponse()).ToList();
+    }
+
+    public async Task<IReadOnlyList<ShipmentTimelineEntryResponse>?> GetTimelineByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var shipment = await shipmentRepository.GetByIdAsync(id, cancellationToken);
+        if (shipment is null)
+            return null;
+
+        return await timelineRepository.ListByShipmentIdAsync(id, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ShipmentTimelineEntryResponse>?> GetTimelineByTrackingCodeAsync(
+        string trackingCode,
+        CancellationToken cancellationToken = default)
+    {
+        var shipment = await shipmentRepository.GetByTrackingCodeAsync(trackingCode, cancellationToken);
+        if (shipment is null)
+            return null;
+
+        return await timelineRepository.ListByTrackingCodeAsync(trackingCode, cancellationToken);
     }
 
     public async Task<ShipmentResponse?> UpdateStatusAsync(
