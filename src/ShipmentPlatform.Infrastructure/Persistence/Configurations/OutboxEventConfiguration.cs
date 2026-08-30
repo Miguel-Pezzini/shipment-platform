@@ -22,6 +22,13 @@ public class OutboxEventConfiguration : IEntityTypeConfiguration<OutboxEvent>
         builder.Property(x => x.CreatedAtUtc)
             .IsRequired();
 
-        builder.HasIndex(x => x.ProcessedAtUtc);
+        builder.Property(x => x.AttemptCount)
+            .IsRequired()
+            .HasDefaultValue(0);
+
+        builder.Property(x => x.LastError)
+            .HasMaxLength(2000);
+
+        builder.HasIndex(x => new { x.ProcessedAtUtc, x.PoisonedAtUtc, x.NextAttemptAtUtc });
     }
 }

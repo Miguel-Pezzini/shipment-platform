@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ShipmentPlatform.Domain\ShipmentPlatform.Domain.csproj" />
     <ProjectReference Include="..\..\src\ShipmentPlatform.Application\ShipmentPlatform.Application.csproj" />
+    <ProjectReference Include="..\..\src\ShipmentPlatform.Infrastructure\ShipmentPlatform.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

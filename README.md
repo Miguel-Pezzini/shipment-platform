@@ -35,7 +35,7 @@ Regras ficam na entidade (não no controller).
 | API | ASP.NET Core + FluentValidation |
 | Auth | JWT Bearer (`POST /api/auth/login`) |
 | Persistência | EF Core + PostgreSQL + migrations |
-| Mensageria | MassTransit + RabbitMQ + **EF Outbox** |
+| Mensageria | MassTransit + RabbitMQ + outbox transacional próprio |
 | Cache | Redis (`IDistributedCache`) |
 | Observabilidade | OpenTelemetry → Prometheus + Grafana |
 | Testes | xUnit, Moq, Testcontainers |
@@ -112,9 +112,10 @@ Exemplo de body (POST):
 
 ### Fluxo de eventos (Outbox)
 
-1. `CreateAsync` adiciona o frete e publica `ShipmentCreatedEvent` via MassTransit.
-2. O **EF Outbox** grava a mensagem na mesma transação do Postgres.
-3. O bus entrega no RabbitMQ; `ShipmentCreatedConsumer` consome e registra nos logs.
+1. `CreateAsync` adiciona o frete e grava `ShipmentCreatedEvent` na tabela `outbox_events` **na mesma transação** do Postgres.
+2. `OutboxProcessorService` reclama um lote com `FOR UPDATE SKIP LOCKED`, publica no bus (MassTransit) com `MessageId` = id da outbox e só então marca `ProcessedAtUtc`.
+3. Falha transiente incrementa `AttemptCount` e agenda `NextAttemptAtUtc` (backoff exponencial). Depois de 5 tentativas — ou tipo/JSON inválido — o evento fica com `PoisonedAtUtc` para inspeção e **não** é marcado como processado.
+4. O consumer grava `(MessageId, ConsumerName)` em `inbox_messages` antes do efeito (hoje: log), para um replay at-least-once não duplicar trabalho.
 
 ## Migrations
 
@@ -135,8 +136,8 @@ dotnet ef migrations add NomeDaMigration \
 dotnet test
 ```
 
-- **Unit**: regras de `Shipment` + `ShipmentService` (Moq + cache em memória)
-- **Integration**: API real + Postgres (Testcontainers) + MassTransit in-memory + JWT
+- **Unit**: regras de `Shipment` + `ShipmentService` (Moq + cache em memória) + retry/tipo da outbox
+- **Integration**: API real + Postgres (Testcontainers) + MassTransit in-memory + JWT + processor da outbox (processed vs poison)
 
 ## Docker full stack
 

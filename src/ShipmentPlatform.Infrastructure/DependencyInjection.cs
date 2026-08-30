@@ -25,12 +25,14 @@ public static class DependencyInjection
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
         services.Configure<RabbitMqOptions>(configuration.GetSection(RabbitMqOptions.SectionName));
         services.Configure<CacheOptions>(configuration.GetSection(CacheOptions.SectionName));
+        services.Configure<OutboxOptions>(configuration.GetSection(OutboxOptions.SectionName));
 
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
 
         services.AddScoped<IShipmentRepository, ShipmentRepository>();
         services.AddScoped<IEventPublisher, OutboxEventPublisher>();
+        services.AddScoped<InboxGuard>();
         services.AddHostedService<OutboxProcessorService>();
         services.AddSingleton<IJwtTokenService, JwtTokenService>();
 

@@ -30,6 +30,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         builder.UseSetting("ConnectionStrings:DefaultConnection", _postgres.GetConnectionString());
         builder.UseSetting("Messaging:UseInMemory", "true");
         builder.UseSetting("Redis:UseInMemory", "true");
+        builder.UseSetting("Outbox:PollingIntervalSeconds", "1");
+        builder.UseSetting("Outbox:BatchSize", "20");
+        builder.UseSetting("Outbox:MaxAttempts", "5");
         builder.UseSetting("Jwt:Issuer", "ShipmentPlatform.Tests");
         builder.UseSetting("Jwt:Audience", "ShipmentPlatform.Tests");
         builder.UseSetting("Jwt:Key", "ShipmentPlatform-Test-Signing-Key-32chars!");

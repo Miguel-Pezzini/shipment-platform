@@ -18,7 +18,7 @@ public sealed class OutboxEventPublisher(AppDbContext db) : IEventPublisher
         db.OutboxEvents.Add(new OutboxEvent
         {
             Id = Guid.NewGuid(),
-            EventType = typeof(TEvent).AssemblyQualifiedName!,
+            EventType = OutboxEventTypeMap.GetTypeName(typeof(TEvent)),
             Payload = JsonSerializer.Serialize(@event, JsonOptions),
             CreatedAtUtc = DateTime.UtcNow
         });
