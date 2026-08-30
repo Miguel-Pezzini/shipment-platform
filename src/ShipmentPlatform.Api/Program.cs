@@ -11,7 +11,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 builder.Services.AddApplication();
-builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddApiInfrastructure(builder.Configuration);
 
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource
@@ -20,8 +20,7 @@ builder.Services.AddOpenTelemetry()
             serviceVersion: typeof(Program).Assembly.GetName().Version?.ToString() ?? "1.0.0"))
     .WithTracing(tracing => tracing
         .AddAspNetCoreInstrumentation()
-        .AddHttpClientInstrumentation()
-        .AddSource("MassTransit"))
+        .AddHttpClientInstrumentation())
     .WithMetrics(metrics => metrics
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()

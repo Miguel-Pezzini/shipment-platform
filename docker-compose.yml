@@ -73,15 +73,15 @@ services:
     profiles: ["full"]
     build:
       context: .
-      dockerfile: src/ShipmentPlatform.Api/Dockerfile
-    container_name: shipment-platform-api
+      dockerfile: Dockerfile
+      args:
+        PROJECT: src/ShipmentPlatform.Api/ShipmentPlatform.Api.csproj
+        DLL: ShipmentPlatform.Api.dll
+        RUNTIME_IMAGE: mcr.microsoft.com/dotnet/aspnet:10.0
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=shipment_platform;Username=shipment;Password=shipment
-      RabbitMq__Host: rabbitmq
-      RabbitMq__Username: shipment
-      RabbitMq__Password: shipment
       Redis__ConnectionString: redis:6379
       Jwt__Key: ShipmentPlatform-Dev-Signing-Key-Change-Me-32+
     ports:
@@ -89,10 +89,61 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
       redis:
         condition: service_healthy
+    restart: on-failure
+
+  outbox:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PROJECT: src/ShipmentPlatform.OutboxWorker/ShipmentPlatform.OutboxWorker.csproj
+        DLL: ShipmentPlatform.OutboxWorker.dll
+        RUNTIME_IMAGE: mcr.microsoft.com/dotnet/runtime:10.0
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=shipment_platform;Username=shipment;Password=shipment
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: shipment
+      RabbitMq__Password: shipment
+      Metrics__Host: 0.0.0.0
+      Metrics__Port: "9464"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      api:
+        condition: service_started
+    restart: on-failure
+
+  consumers:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PROJECT: src/ShipmentPlatform.ConsumerWorker/ShipmentPlatform.ConsumerWorker.csproj
+        DLL: ShipmentPlatform.ConsumerWorker.dll
+        RUNTIME_IMAGE: mcr.microsoft.com/dotnet/runtime:10.0
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=shipment_platform;Username=shipment;Password=shipment
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: shipment
+      RabbitMq__Password: shipment
+      Metrics__Host: 0.0.0.0
+      Metrics__Port: "9465"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      api:
+        condition: service_started
+    restart: on-failure
 
 volumes:
   shipment_platform_pgdata:

@@ -2,8 +2,10 @@
   <Folder Name="/src/">
     <Project Path="src/ShipmentPlatform.Api/ShipmentPlatform.Api.csproj" />
     <Project Path="src/ShipmentPlatform.Application/ShipmentPlatform.Application.csproj" />
+    <Project Path="src/ShipmentPlatform.ConsumerWorker/ShipmentPlatform.ConsumerWorker.csproj" />
     <Project Path="src/ShipmentPlatform.Domain/ShipmentPlatform.Domain.csproj" />
     <Project Path="src/ShipmentPlatform.Infrastructure/ShipmentPlatform.Infrastructure.csproj" />
+    <Project Path="src/ShipmentPlatform.OutboxWorker/ShipmentPlatform.OutboxWorker.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ShipmentPlatform.IntegrationTests/ShipmentPlatform.IntegrationTests.csproj" />

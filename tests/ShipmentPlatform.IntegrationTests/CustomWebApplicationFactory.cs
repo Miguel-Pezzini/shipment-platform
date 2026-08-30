@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ShipmentPlatform.Infrastructure;
 using ShipmentPlatform.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
 
@@ -50,6 +51,10 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
 
             services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql(_postgres.GetConnectionString()));
+
+            services.AddOutboxProcessor();
+            services.AddInbox();
+            services.AddMassTransitConsumers(useInMemory: true);
         });
     }
 }

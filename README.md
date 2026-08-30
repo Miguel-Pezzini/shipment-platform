@@ -2,11 +2,15 @@
 
 API de transportadora em **.NET 10** com **Clean Architecture**, mensageria transacional, cache e observabilidade.
 
+HTTP, poll da outbox e consumers rodam em **processos separados** (mesmo Postgres e RabbitMQ).
+
 ## Arquitetura
 
 ```text
 src/
-  ShipmentPlatform.Api/             → HTTP, JWT, OpenTelemetry/Prometheus
+  ShipmentPlatform.Api/             → HTTP, JWT, Redis, migrate, OpenTelemetry/Prometheus
+  ShipmentPlatform.OutboxWorker/    → poll da outbox (SKIP LOCKED) + publish MassTransit
+  ShipmentPlatform.ConsumerWorker/  → consumers RabbitMQ + inbox
   ShipmentPlatform.Application/     → use cases, DTOs, validators, ports
   ShipmentPlatform.Domain/          → entidades e regras de negócio
   ShipmentPlatform.Infrastructure/  → EF Core, Postgres, MassTransit, Redis, JWT
@@ -18,7 +22,28 @@ observability/
   grafana/
 ```
 
-Dependências apontam para dentro: Api → Application/Infrastructure → Domain.
+```text
+Cliente HTTP
+    │
+    ▼
+┌─────────┐  INSERT shipment + outbox_events (mesma transação)
+│   API   │  Redis, JWT, Database.Migrate()
+└─────────┘
+    │
+    │  Postgres
+    ▼
+┌───────────────┐  FOR UPDATE SKIP LOCKED → IPublishEndpoint
+│ Outbox worker │  MassTransit só publica
+└───────────────┘
+    │
+    │  RabbitMQ
+    ▼
+┌──────────────────┐  competing consumers + InboxGuard
+│ Consumer worker  │  efeito do evento (hoje: log)
+└──────────────────┘
+```
+
+Dependências apontam para dentro: hosts → Application/Infrastructure → Domain.
 
 ## Domínio
 
@@ -36,6 +61,7 @@ Regras ficam na entidade (não no controller).
 | Auth | JWT Bearer (`POST /api/auth/login`) |
 | Persistência | EF Core + PostgreSQL + migrations |
 | Mensageria | MassTransit + RabbitMQ + outbox transacional próprio |
+| Workers | Outbox poller e consumers em hosts separados |
 | Cache | Redis (`IDistributedCache`) |
 | Observabilidade | OpenTelemetry → Prometheus + Grafana |
 | Testes | xUnit, Moq, Testcontainers |
@@ -66,14 +92,20 @@ docker compose --profile observability up -d
 | Prometheus | http://localhost:9090 |
 | Grafana | http://localhost:3000 (`admin` / `admin`) |
 
-## Rodar a API
+## Rodar local (três processos)
 
 ```bash
 dotnet run --project src/ShipmentPlatform.Api --launch-profile http
+dotnet run --project src/ShipmentPlatform.OutboxWorker
+dotnet run --project src/ShipmentPlatform.ConsumerWorker
 ```
 
 Base URL: http://localhost:5208  
-Métricas: http://localhost:5208/metrics
+Métricas da API: http://localhost:5208/metrics  
+Métricas do outbox worker: http://localhost:9464/metrics  
+Métricas do consumer worker: http://localhost:9465/metrics  
+
+Se só a API estiver no ar, o frete grava e o evento fica pendente em `outbox_events` até o outbox worker subir.
 
 ### Autenticação
 
@@ -113,13 +145,13 @@ Exemplo de body (POST):
 ### Fluxo de eventos (Outbox)
 
 1. `CreateAsync` adiciona o frete e grava `ShipmentCreatedEvent` na tabela `outbox_events` **na mesma transação** do Postgres.
-2. `OutboxProcessorService` reclama um lote com `FOR UPDATE SKIP LOCKED`, publica no bus (MassTransit) com `MessageId` = id da outbox e só então marca `ProcessedAtUtc`.
+2. O **Outbox worker** reclama um lote com `FOR UPDATE SKIP LOCKED`, publica no bus (MassTransit) com `MessageId` = id da outbox e só então marca `ProcessedAtUtc`. Várias réplicas do worker competem sem duplicar linha.
 3. Falha transiente incrementa `AttemptCount` e agenda `NextAttemptAtUtc` (backoff exponencial). Depois de 5 tentativas — ou tipo/JSON inválido — o evento fica com `PoisonedAtUtc` para inspeção e **não** é marcado como processado.
-4. O consumer grava `(MessageId, ConsumerName)` em `inbox_messages` antes do efeito (hoje: log), para um replay at-least-once não duplicar trabalho.
+4. O **Consumer worker** grava `(MessageId, ConsumerName)` em `inbox_messages` antes do efeito (hoje: log), para um replay at-least-once não duplicar trabalho.
 
 ## Migrations
 
-Aplicadas automaticamente no startup (`Database.Migrate()`).
+Aplicadas automaticamente no startup da **API** (`Database.Migrate()`). Os workers não migram.
 
 Para gerar uma nova:
 
@@ -137,7 +169,7 @@ dotnet test
 ```
 
 - **Unit**: regras de `Shipment` + `ShipmentService` (Moq + cache em memória) + retry/tipo da outbox
-- **Integration**: API real + Postgres (Testcontainers) + MassTransit in-memory + JWT + processor da outbox (processed vs poison)
+- **Integration**: API real + Postgres (Testcontainers) + MassTransit in-memory + JWT + processor da outbox (processed vs poison) no mesmo processo de teste
 
 ## Docker full stack
 
@@ -146,3 +178,9 @@ docker compose --profile full up --build
 ```
 
 API em http://localhost:8080 (Prometheus/Grafana sobem com o profile `full`).
+
+Para duas réplicas de outbox e consumers (SKIP LOCKED + competing consumers):
+
+```bash
+docker compose --profile full up --build --scale outbox=2 --scale consumers=2
+```

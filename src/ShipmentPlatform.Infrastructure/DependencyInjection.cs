@@ -17,34 +17,73 @@ namespace ShipmentPlatform.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructure(
+    public static IServiceCollection AddApiInfrastructure(
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
-        services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
-        services.Configure<RabbitMqOptions>(configuration.GetSection(RabbitMqOptions.SectionName));
-        services.Configure<CacheOptions>(configuration.GetSection(CacheOptions.SectionName));
-        services.Configure<OutboxOptions>(configuration.GetSection(OutboxOptions.SectionName));
+        services.AddPersistence(configuration);
+        services.AddOutboxWriter();
+        services.AddCache(configuration);
+        services.AddJwtAuthentication(configuration);
+        return services;
+    }
 
+    public static IServiceCollection AddOutboxWorkerInfrastructure(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddPersistence(configuration);
+        services.AddOutboxProcessor();
+        services.AddMassTransitPublisher(configuration);
+        return services;
+    }
+
+    public static IServiceCollection AddConsumerWorkerInfrastructure(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddPersistence(configuration);
+        services.AddInbox();
+        services.AddMassTransitConsumers(configuration);
+        return services;
+    }
+
+    public static IServiceCollection AddPersistence(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
 
         services.AddScoped<IShipmentRepository, ShipmentRepository>();
-        services.AddScoped<IEventPublisher, OutboxEventPublisher>();
-        services.AddScoped<InboxGuard>();
-        services.AddHostedService<OutboxProcessorService>();
-        services.AddSingleton<IJwtTokenService, JwtTokenService>();
-
-        AddCache(services, configuration);
-        AddMessaging(services, configuration);
-        AddJwtAuthentication(services, configuration);
-
         return services;
     }
 
-    private static void AddCache(IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddOutboxWriter(this IServiceCollection services)
     {
+        services.AddScoped<IEventPublisher, OutboxEventPublisher>();
+        return services;
+    }
+
+    public static IServiceCollection AddOutboxProcessor(this IServiceCollection services)
+    {
+        services.AddOptions<OutboxOptions>().BindConfiguration(OutboxOptions.SectionName);
+        services.AddHostedService<OutboxProcessorService>();
+        return services;
+    }
+
+    public static IServiceCollection AddInbox(this IServiceCollection services)
+    {
+        services.AddScoped<InboxGuard>();
+        return services;
+    }
+
+    public static IServiceCollection AddCache(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddOptions<CacheOptions>().BindConfiguration(CacheOptions.SectionName);
+
         if (configuration.GetValue("Redis:UseInMemory", false)
             || string.IsNullOrWhiteSpace(configuration["Redis:ConnectionString"]))
         {
@@ -60,41 +99,41 @@ public static class DependencyInjection
         }
 
         services.AddSingleton<ICache, JsonDistributedCache>();
+        return services;
     }
 
-    private static void AddMessaging(IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddMassTransitPublisher(
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
-        var useInMemory = configuration.GetValue("Messaging:UseInMemory", false);
-        var rabbit = configuration.GetSection(RabbitMqOptions.SectionName).Get<RabbitMqOptions>()
-            ?? new RabbitMqOptions();
-
-        services.AddMassTransit(x =>
-        {
-            x.AddConsumer<ShipmentCreatedConsumer>();
-            x.AddConsumer<ShipmentStatusChangedConsumer>();
-
-            if (useInMemory)
-            {
-                x.UsingInMemory((context, cfg) => cfg.ConfigureEndpoints(context));
-            }
-            else
-            {
-                x.UsingRabbitMq((context, cfg) =>
-                {
-                    cfg.Host(rabbit.Host, rabbit.Port, "/", h =>
-                    {
-                        h.Username(rabbit.Username);
-                        h.Password(rabbit.Password);
-                    });
-
-                    cfg.ConfigureEndpoints(context);
-                });
-            }
-        });
+        ConfigureMassTransit(services, ReadBusSettings(configuration), withConsumers: false);
+        return services;
     }
 
-    private static void AddJwtAuthentication(IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddMassTransitConsumers(
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
+        ConfigureMassTransit(services, ReadBusSettings(configuration), withConsumers: true);
+        return services;
+    }
+
+    public static IServiceCollection AddMassTransitConsumers(
+        this IServiceCollection services,
+        bool useInMemory)
+    {
+        ConfigureMassTransit(services, (useInMemory, new RabbitMqOptions()), withConsumers: true);
+        return services;
+    }
+
+    public static IServiceCollection AddJwtAuthentication(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddOptions<JwtOptions>().BindConfiguration(JwtOptions.SectionName);
+        services.AddOptions<AuthOptions>().BindConfiguration(AuthOptions.SectionName);
+        services.AddSingleton<IJwtTokenService, JwtTokenService>();
+
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
             ?? throw new InvalidOperationException("Jwt configuration is required.");
 
@@ -120,5 +159,54 @@ public static class DependencyInjection
             });
 
         services.AddAuthorization();
+        return services;
+    }
+
+    private static (bool UseInMemory, RabbitMqOptions Rabbit) ReadBusSettings(IConfiguration configuration)
+    {
+        var useInMemory = configuration.GetValue("Messaging:UseInMemory", false);
+        var rabbit = configuration.GetSection(RabbitMqOptions.SectionName).Get<RabbitMqOptions>()
+            ?? new RabbitMqOptions();
+        return (useInMemory, rabbit);
+    }
+
+    private static void ConfigureMassTransit(
+        IServiceCollection services,
+        (bool UseInMemory, RabbitMqOptions Rabbit) settings,
+        bool withConsumers)
+    {
+        var (useInMemory, rabbit) = settings;
+
+        services.AddMassTransit(x =>
+        {
+            if (withConsumers)
+            {
+                x.AddConsumer<ShipmentCreatedConsumer>();
+                x.AddConsumer<ShipmentStatusChangedConsumer>();
+            }
+
+            if (useInMemory)
+            {
+                x.UsingInMemory((context, cfg) =>
+                {
+                    if (withConsumers)
+                        cfg.ConfigureEndpoints(context);
+                });
+            }
+            else
+            {
+                x.UsingRabbitMq((context, cfg) =>
+                {
+                    cfg.Host(rabbit.Host, rabbit.Port, "/", h =>
+                    {
+                        h.Username(rabbit.Username);
+                        h.Password(rabbit.Password);
+                    });
+
+                    if (withConsumers)
+                        cfg.ConfigureEndpoints(context);
+                });
+            }
+        });
     }
 }
