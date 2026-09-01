@@ -1,4 +1,3 @@
-using FluentValidation;
 using ShipmentPlatform.Application.Abstractions;
 using ShipmentPlatform.Application.Caching;
 using ShipmentPlatform.Application.DTOs;
@@ -14,15 +13,12 @@ public class ShipmentService(
     IShipmentRepository shipmentRepository,
     IShipmentTimelineRepository timelineRepository,
     IEventPublisher eventPublisher,
-    IValidator<CreateShipmentRequest> createShipmentValidator,
     ICache cache) : IShipmentService
 {
     public async Task<ShipmentResponse> CreateAsync(
         CreateShipmentRequest request,
         CancellationToken cancellationToken = default)
     {
-        await createShipmentValidator.ValidateAndThrowAsync(request, cancellationToken);
-
         var shipment = Shipment.Create(
             request.SenderName,
             request.RecipientName,

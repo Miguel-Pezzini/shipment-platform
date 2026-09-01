@@ -3,6 +3,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using ShipmentPlatform.Api.ExceptionHandling;
+using ShipmentPlatform.Api.Validation;
 using ShipmentPlatform.Application;
 using ShipmentPlatform.Infrastructure;
 using ShipmentPlatform.Infrastructure.Persistence;
@@ -10,7 +11,7 @@ using ShipmentPlatform.Infrastructure.Persistence;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
-builder.Services.AddControllers();
+builder.Services.AddControllers(options => options.Filters.Add<FluentValidationActionFilter>());
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 builder.Services.AddApplication();

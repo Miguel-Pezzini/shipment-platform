@@ -4,7 +4,6 @@ using ShipmentPlatform.Application.Abstractions;
 using ShipmentPlatform.Application.DTOs;
 using ShipmentPlatform.Application.Events;
 using ShipmentPlatform.Application.Services;
-using ShipmentPlatform.Application.Validators;
 using ShipmentPlatform.Domain.Entities;
 using ShipmentPlatform.Domain.Exceptions;
 using ShipmentPlatform.UnitTests.Fakes;
@@ -25,7 +24,6 @@ public class ShipmentServiceTests
             _repository.Object,
             _timeline.Object,
             _publisher.Object,
-            new CreateShipmentRequestValidator(),
             _cache);
     }
 
