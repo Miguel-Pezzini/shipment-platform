@@ -152,4 +152,25 @@ public class ShipmentServiceTests
 
         result.Should().BeEquivalentTo(entries);
     }
+
+    [Fact]
+    public async Task GetAllAsync_ShouldReturnPagedResult()
+    {
+        var newer = Shipment.Create("ACME", "Cliente", "Curitiba", "São Paulo", 8);
+        var older = Shipment.Create("Beta", "Cliente", "Joinville", "Blumenau", 3);
+        var query = new PagedQuery { Page = 1, PerPage = 2 };
+
+        _repository
+            .Setup(r => r.ListPagedAsync(1, 2, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(([newer, older], 5));
+
+        var result = await _sut.GetAllAsync(query);
+
+        result.Items.Should().HaveCount(2);
+        result.Items[0].SenderName.Should().Be("ACME");
+        result.Page.Should().Be(1);
+        result.PerPage.Should().Be(2);
+        result.TotalCount.Should().Be(5);
+        result.TotalPages.Should().Be(3);
+    }
 }

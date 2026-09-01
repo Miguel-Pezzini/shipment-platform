@@ -11,9 +11,11 @@ namespace ShipmentPlatform.Api.Controllers;
 public class ShipmentsController(IShipmentService shipmentService) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<ShipmentResponse>>> GetAll(CancellationToken cancellationToken)
+    public async Task<ActionResult<PagedResult<ShipmentResponse>>> GetAll(
+        [FromQuery] PagedQuery query,
+        CancellationToken cancellationToken)
     {
-        var shipments = await shipmentService.GetAllAsync(cancellationToken);
+        var shipments = await shipmentService.GetAllAsync(query, cancellationToken);
         return Ok(shipments);
     }
 

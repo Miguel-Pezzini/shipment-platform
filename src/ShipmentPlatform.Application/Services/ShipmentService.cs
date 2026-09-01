@@ -49,10 +49,20 @@ public class ShipmentService(
             ct => shipmentRepository.GetByTrackingCodeAsync(trackingCode, ct),
             cancellationToken);
 
-    public async Task<IReadOnlyList<ShipmentResponse>> GetAllAsync(CancellationToken cancellationToken = default)
+    public async Task<PagedResult<ShipmentResponse>> GetAllAsync(
+        PagedQuery query,
+        CancellationToken cancellationToken = default)
     {
-        var shipments = await shipmentRepository.GetAllAsync(cancellationToken);
-        return shipments.Select(shipment => shipment.ToResponse()).ToList();
+        var (shipments, totalCount) = await shipmentRepository.ListPagedAsync(
+            query.Page,
+            query.PerPage,
+            cancellationToken);
+
+        return PagedResult<ShipmentResponse>.Create(
+            shipments.Select(shipment => shipment.ToResponse()).ToList(),
+            query.Page,
+            query.PerPage,
+            totalCount);
     }
 
     public async Task<IReadOnlyList<ShipmentTimelineEntryResponse>?> GetTimelineByIdAsync(

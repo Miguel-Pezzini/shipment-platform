@@ -119,6 +119,37 @@ public class ShipmentsApiTests
         payload.GetProperty("error").GetString().Should().Contain("Cannot move from");
     }
 
+    [Fact]
+    public async Task List_ShouldReturnPagedEnvelope()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+        await CreateShipmentAsync(client);
+        await CreateShipmentAsync(client);
+
+        var response = await client.GetAsync("/api/shipments?page=1&perPage=1");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var payload = await response.Content.ReadFromJsonAsync<PagedResult<ShipmentResponse>>(JsonOptions);
+        payload.Should().NotBeNull();
+        payload!.Items.Should().HaveCount(1);
+        payload.Page.Should().Be(1);
+        payload.PerPage.Should().Be(1);
+        payload.TotalCount.Should().BeGreaterThanOrEqualTo(2);
+        payload.TotalPages.Should().BeGreaterThanOrEqualTo(2);
+    }
+
+    [Fact]
+    public async Task List_WhenPageIsInvalid_ShouldReturnBadRequest()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/shipments?page=0");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        payload.GetProperty("error").GetString().Should().Be("Validation failed");
+    }
+
     private async Task<ShipmentResponse> CreateShipmentAsync(HttpClient client)
     {
         var request = new CreateShipmentRequest("Transportadora X", "Cliente Y", "Joinville", "Blumenau", 10);
